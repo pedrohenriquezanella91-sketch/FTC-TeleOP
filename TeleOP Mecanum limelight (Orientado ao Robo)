@@ -1,0 +1,52 @@
+package org.firstinspires.ftc.teamcode;
+
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+
+@TeleOp(name="TeleOpMecanum", group="Linear OpMode")
+
+public class TeleOPMecanum extends LinearOpMode {
+
+    private static final double kp = 0.085;
+
+    @Override
+    public void runOpMode() {
+
+        Mecanum mecanum = new Mecanum(hardwareMap);
+        Intake intake = new Intake(hardwareMap);
+        telemetry.setMsTransmissionInterval(11);
+        limelight limelight = new limelight(hardwareMap);
+
+
+        waitForStart();
+
+
+        while (opModeIsActive()) {
+
+            double tx = limelight.getTx();
+            double strafeWithLimelight = (kp * tx);
+
+            mecanum.driverRobotOriented(-gamepad1.left_stick_y,
+                    strafeWithLimelight,
+                    gamepad1.right_stick_x);
+
+            limelight.update();
+            telemetry.addData("tx", limelight.getTx());
+            telemetry.update();
+
+            if(gamepad1.a){
+                intake.coletarPolen();
+            }
+            else if(gamepad1.b){
+                intake.soltarPolen();
+            }
+            else{
+                intake.parar();
+            }
+        }
+
+    }
+}
+
+
+
