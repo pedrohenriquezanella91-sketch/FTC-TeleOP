@@ -1,0 +1,68 @@
+package org.firstinspires.ftc.teamcode;
+
+import com.qualcomm.hardware.rev.RevHubOrientationOnRobot;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.HardwareMap;
+import com.qualcomm.robotcore.hardware.IMU;
+
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+
+public class Mecanum {
+
+    DcMotor motorEsquerdoFrente;
+    DcMotor motorEsquerdoTras;
+    DcMotor motorDireitoFrente;
+    DcMotor motorDireitoTras;
+    IMU imu;
+
+    public Mecanum(HardwareMap hardwareMap) {
+        motorEsquerdoFrente = hardwareMap.get(DcMotor.class, "motorEsquerdoFrente");
+        motorEsquerdoTras = hardwareMap.get(DcMotor.class, "motorEsquerdoTras");
+        motorDireitoFrente = hardwareMap.get(DcMotor.class, "motorDireitoFrente");
+        motorDireitoTras = hardwareMap.get(DcMotor.class, "motorDireitoTras");
+
+        motorDireitoFrente.setDirection(DcMotor.Direction.REVERSE);
+        motorDireitoTras.setDirection(DcMotor.Direction.REVERSE);
+        motorEsquerdoFrente.setDirection(DcMotor.Direction.REVERSE);
+
+        imu = hardwareMap.get(IMU.class, "imu");
+
+
+        RevHubOrientationOnRobot.LogoFacingDirection logoDirection = RevHubOrientationOnRobot.LogoFacingDirection.RIGHT;
+        RevHubOrientationOnRobot.UsbFacingDirection  usbDirection  = RevHubOrientationOnRobot.UsbFacingDirection.BACKWARD;
+
+        RevHubOrientationOnRobot orientationOnRobot = new RevHubOrientationOnRobot(logoDirection, usbDirection);
+
+
+        imu.initialize(new com.qualcomm.robotcore.hardware.IMU.Parameters(orientationOnRobot));
+    }
+    public void driverRobotOriented(double LeftY, double LeftX, double RightX){
+
+        double forward = LeftY;
+        double strafe = LeftX;
+        double turn = RightX;
+
+        double max = Math.max(Math.abs(forward) + Math.abs(strafe) + Math.abs(turn), 1);
+
+        double frontLeftPower = (forward + strafe + turn) / max;
+        double backLeftPower = (forward - strafe + turn) / max;
+        double frontRightPower = (forward - strafe - turn) / max;
+        double backRightPower = (forward + strafe - turn) / max;
+
+        motorEsquerdoFrente.setPower(frontLeftPower);
+        motorEsquerdoTras.setPower(backLeftPower);
+        motorDireitoFrente.setPower(frontRightPower);
+        motorDireitoTras.setPower(backRightPower);
+
+      }
+public void driverFieldOriented(double forward, double strafe, double turn){
+        double botHeading = imu.getRobotYawPitchRollAngles().getYaw(AngleUnit.RADIANS);
+
+        double normalizedStrafe = strafe * Math.cos(-botHeading) - forward * Math.sin(-botHeading);
+        double normalizedSForward = strafe * Math.sin(-botHeading) + forward * Math.cos(-botHeading);
+
+        driverRobotOriented(normalizedSForward, normalizedStrafe, turn);
+}
+
+    }
+
