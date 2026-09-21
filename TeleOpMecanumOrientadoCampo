@@ -1,0 +1,40 @@
+package org.firstinspires.ftc.teamcode;
+
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+
+@TeleOp(name="TeleOpMecanumOrientadoCampo", group="Linear OpMode")
+
+public class TeleOPMecanumOrientadoAOCampo extends LinearOpMode {
+
+    @Override
+    public void runOpMode() {
+
+        Mecanum mecanum = new Mecanum(hardwareMap);
+        Intake intake = new Intake(hardwareMap);
+
+        waitForStart();
+
+        while (opModeIsActive()) {
+
+            mecanum.driverFieldOriented(-gamepad1.left_stick_y,
+                    gamepad1.left_stick_x,
+                    gamepad1.right_stick_x);
+
+            if(gamepad1.a){
+                intake.coletarPolen();
+            }
+            else if(gamepad1.b){
+                intake.soltarPolen();
+            }
+            else{
+                intake.parar();
+            }
+        }
+
+    }
+}
+
+
+
+
