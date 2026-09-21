@@ -1,0 +1,28 @@
+package org.firstinspires.ftc.teamcode;
+
+import static org.firstinspires.ftc.robotcore.external.BlocksOpModeCompanion.hardwareMap;
+
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
+import com.qualcomm.robotcore.hardware.HardwareMap;
+
+public class Intake {
+
+    public DcMotor intake;
+
+    public Intake(HardwareMap hardwareMap) {
+        intake = hardwareMap.get(DcMotor.class, "intake");
+
+        intake.setDirection(DcMotorSimple.Direction.FORWARD);
+    }
+
+    public void coletarPolen() {
+        intake.setPower(1.0);
+    }
+    public void soltarPolen(){
+        intake.setPower(-1.0);
+    }
+    public void parar() {
+        intake.setPower(0);
+    }
+}
