@@ -5,19 +5,25 @@ import com.qualcomm.hardware.limelightvision.Limelight3A;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 
 public class limelight {
+
     private Limelight3A limelight;
 
     private double tx;
     private double ty;
     private double ta;
+    private boolean hasTarget;
 
     public limelight(HardwareMap hardwareMap){
-        limelight = hardwareMap.get(Limelight3A.class, "limelight");
+
+        limelight = hardwareMap.get(
+                Limelight3A.class,
+                "limelight"
+        );
 
         limelight.pipelineSwitch(0);
-
         limelight.start();
     }
+
     public double getTx(){
         return tx;
     }
@@ -30,16 +36,25 @@ public class limelight {
         return ta;
     }
 
+    public boolean hasTarget() {
+        return hasTarget;
+    }
+
     public void update(){
+
         LLResult result = limelight.getLatestResult();
 
         if (result.isValid()){
+
+            hasTarget = true;
+
             ta = result.getTa();
             tx = result.getTx();
             ty = result.getTy();
 
+        } else {
+
+            hasTarget = false;
         }
     }
-
 }
-
