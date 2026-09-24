@@ -1,0 +1,67 @@
+package org.firstinspires.ftc.teamcode;
+
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.HardwareMap;
+
+public class LimelightCamera {
+
+    private DcMotor motorLimelight;
+
+    private double currentPower = 0;
+
+    private final double kp = 0.015;
+    private final double maxPower = 0.35;
+    private final double deadband = 1.5;
+    private final double maxPowerChange = 0.015;
+
+    public LimelightCamera(HardwareMap hardwareMap) {
+
+        motorLimelight = hardwareMap.get(
+                DcMotor.class,
+                "motorLimelight"
+        );
+    }
+
+    public void setPower(double power) {
+        motorLimelight.setPower(power);
+    }
+
+    public void stop() {
+        currentPower = 0;
+        motorLimelight.setPower(0);
+    }
+
+    public void aimAtTarget(double tx, boolean hasTarget) {
+
+        if (!hasTarget) {
+            stop();
+            return;
+        }
+
+        if (Math.abs(tx) < deadband) {
+            stop();
+            return;
+        }
+
+        double targetPower = tx * kp;
+
+        targetPower = Math.max(
+                -maxPower,
+                Math.min(maxPower, targetPower)
+        );
+
+        double difference = targetPower - currentPower;
+
+        if (difference > maxPowerChange) {
+            difference = maxPowerChange;
+        }
+
+        if (difference < -maxPowerChange) {
+            difference = -maxPowerChange;
+        }
+
+        currentPower += difference;
+
+        setPower(currentPower);
+    }
+}
