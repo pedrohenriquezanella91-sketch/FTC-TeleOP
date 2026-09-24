@@ -1,0 +1,35 @@
+package org.firstinspires.ftc.teamcode;
+
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+
+@TeleOp(name = "Teste Motor Limelight", group = "Teste")
+public class TesteMotorLimelight extends LinearOpMode {
+
+    @Override
+    public void runOpMode() {
+
+        LimelightCamera camera = new LimelightCamera(hardwareMap);
+
+        waitForStart();
+
+        while (opModeIsActive()) {
+
+            if (gamepad1.a) {
+                camera.setPower(0.3);
+            }
+            else if (gamepad1.b) {
+                camera.setPower(-0.3);
+            }
+            else {
+                camera.stop();
+            }
+
+            telemetry.addData("A", "Gira +0.3");
+            telemetry.addData("B", "Gira -0.3");
+            telemetry.update();
+        }
+
+        camera.stop();
+    }
+}
