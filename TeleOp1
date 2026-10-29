@@ -1,0 +1,105 @@
+package org.firstinspires.ftc.teamcode;
+
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.hardware.DcMotor;
+
+@TeleOp(name = "Texte")
+public class TeleOP1 extends LinearOpMode {
+
+    DcMotor motorEsquerdoFrente;
+    DcMotor motorEsquerdoTras;
+    DcMotor motorDireitoFrente;
+    DcMotor motorDireitoTras;
+
+    @Override
+    public void runOpMode() {
+
+        motorEsquerdoFrente =
+                hardwareMap.get(DcMotor.class, "motorEsquerdoFrente");
+
+        motorEsquerdoTras =
+                hardwareMap.get(DcMotor.class, "motorEsquerdoTras");
+
+        motorDireitoFrente =
+                hardwareMap.get(DcMotor.class, "motorDireitoFrente");
+
+        motorDireitoTras =
+                hardwareMap.get(DcMotor.class, "motorDireitoTras");
+
+        motorEsquerdoFrente.setDirection(DcMotor.Direction.REVERSE);
+        motorEsquerdoTras.setDirection(DcMotor.Direction.REVERSE);
+        motorDireitoTras.setDirection(DcMotor.Direction.REVERSE);
+
+        motorEsquerdoFrente.setZeroPowerBehavior(
+                DcMotor.ZeroPowerBehavior.BRAKE);
+
+        motorEsquerdoTras.setZeroPowerBehavior(
+                DcMotor.ZeroPowerBehavior.BRAKE);
+
+        motorDireitoFrente.setZeroPowerBehavior(
+                DcMotor.ZeroPowerBehavior.BRAKE);
+
+        motorDireitoTras.setZeroPowerBehavior(
+                DcMotor.ZeroPowerBehavior.BRAKE);
+
+        telemetry.addLine("Mecanum pronto!");
+        telemetry.addLine("Pressione START.");
+        telemetry.update();
+
+        waitForStart();
+
+        while (opModeIsActive()) {
+
+            double frente = -gamepad1.left_stick_y;
+            double lateral = gamepad1.left_stick_x;
+            double giro = gamepad1.right_stick_x;
+
+            double motorMEF =
+                    frente + lateral + giro;
+
+            double motorMET =
+                    frente - lateral + giro;
+
+            double motorMDF =
+                    frente - lateral - giro;
+
+            double motorMDT =
+                    frente + lateral - giro;
+
+            double maiorPotencia = Math.max(
+                    Math.max(Math.abs(motorMEF), Math.abs(motorMET)),
+                    Math.max(Math.abs(motorMDF), Math.abs(motorMDT))
+            );
+
+            if (maiorPotencia > 1.0) {
+                motorMEF /= maiorPotencia;
+                motorMET /= maiorPotencia;
+                motorMDF /= maiorPotencia;
+                motorMDT /= maiorPotencia;
+            }
+
+            motorEsquerdoFrente.setPower(motorMEF);
+            motorEsquerdoTras.setPower(motorMET);
+
+            motorDireitoFrente.setPower(motorMDF);
+            motorDireitoTras.setPower(motorMDT);
+
+            telemetry.addData("Frente", "%.2f", frente);
+            telemetry.addData("Lateral", "%.2f", lateral);
+            telemetry.addData("Giro", "%.2f", giro);
+
+            telemetry.addData("motorEsquerdoFrente", "%.2f", motorMEF);
+            telemetry.addData("motorEsquerdoTras", "%.2f", motorMET);
+            telemetry.addData("motorDireitoFrente", "%.2f", motorMDF);
+            telemetry.addData("motorDireitoTras", "%.2f", motorMDT);
+
+            telemetry.update();
+        }
+
+        motorEsquerdoFrente.setPower(0);
+        motorEsquerdoTras.setPower(0);
+        motorDireitoFrente.setPower(0);
+        motorDireitoTras.setPower(0);
+    }
+}
