@@ -1,0 +1,79 @@
+
+package org.firstinspires.ftc.teamcode;
+
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
+
+@TeleOp(name = "TeleOpCompleto", group = "Competition")
+public class TeleOpOrientadoRoboCompleto extends LinearOpMode {
+
+    @Override
+    public void runOpMode() {
+
+        Mecanum mecanum = new Mecanum(hardwareMap);
+        Intake intake = new Intake(hardwareMap);
+
+        DcMotor lancador = hardwareMap.get(
+                DcMotor.class, "lancador"
+        );
+
+        lancador.setDirection(DcMotor.Direction.REVERSE);
+        lancador.setZeroPowerBehavior(
+                DcMotor.ZeroPowerBehavior.BRAKE
+        );
+
+        telemetry.addLine("TeleOp pronto");
+        telemetry.update();
+
+        waitForStart();
+
+        if (isStopRequested()) {
+            return;
+        }
+
+        mecanum.resetHeading();
+
+        while (opModeIsActive()) {
+
+            // MOVIMENTACAO
+            mecanum.driverRobotOriented(
+                    -gamepad1.left_stick_y,
+                    gamepad1.left_stick_x,
+                    gamepad1.right_stick_x
+            );
+
+            // INTAKE
+            if (gamepad1.a) {
+                intake.coletarPolen();
+            } else if (gamepad1.b) {
+                intake.soltarPolen();
+            } else {
+                intake.parar();
+            }
+
+            // LANCADOR
+            if (gamepad1.y) {
+                lancador.setPower(0.85);
+            } else if (gamepad1.x) {
+                lancador.setPower(0.9);
+            }else {
+                lancador.setPower(0);
+            }
+
+            // RESET DA IMU
+            if (gamepad1.options) {
+                mecanum.resetHeading();
+            }
+
+            telemetry.addData(
+                    "Orientacao", mecanum.getHeading()
+            );
+            telemetry.update();
+        }
+
+        intake.parar();
+        lancador.setPower(0);
+    }
+}
