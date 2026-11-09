@@ -1,0 +1,308 @@
+package org.firstinspires.ftc.teamcode;
+
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DcMotorEx;
+import com.qualcomm.robotcore.hardware.VoltageSensor;
+import com.qualcomm.robotcore.util.ElapsedTime;
+@TeleOp(name = "TeleOpCompletoFuncional", group = "Competition")
+public class TeleOpOrientadoRoboCompletoFuncional extends LinearOpMode {
+
+    // ================== CONFIGURACAO DO LANCADOR (AJUSTE AQUI) ==================
+    static final double CPR_LANCADOR = 28;       // ticks por volta NO EIXO DO SHOOTER (com reducao, se houver)
+    static final double MAX_RPM = 5100;          // MEDIR: segure D-pad CIMA (potencia 1.0) e leia o RPM estavel
+    static final double TENSAO_REF = 12.5;       // MEDIR: tensao da bateria mostrada na telemetria durante a medicao do MAX_RPM
+    static final double RPM_ALVO = 2400;         // RPM desejado para o disparo
+    static final int    PELOTAS_RAJADA = 4;      // quantidade de disparos consecutivos
+    static final double TEMPO_ALIMENTANDO = 0.4; // s com intakeFinal.lancar() ligado por pelota
+    static final double TEMPO_MIN_RECUPERACAO = 0.25; // s minimos de espera apos cada disparo
+    static final double TIMEOUT_PRONTO = 1.0;    // s maximo esperando o RPM estabilizar (seguranca)
+    // ===========================================================================
+
+    // Estados da rajada
+    private enum Rajada { PARADO, AGUARDANDO_RPM, ALIMENTANDO, RECUPERANDO }
+
+    @Override
+    public void runOpMode() {
+
+        Mecanum mecanum = new Mecanum(hardwareMap);
+        Intake intake = new Intake(hardwareMap);
+
+        IntakeFinal intakeFinal = new IntakeFinal(hardwareMap);
+        telemetry.setMsTransmissionInterval(11);
+
+        DcMotorEx lancador = hardwareMap.get(DcMotorEx.class, "lancador");
+
+        lancador.setDirection(DcMotor.Direction.REVERSE);
+        lancador.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        lancador.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        lancador.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER); // o PID e feito por nos
+
+        LauncherPID pid = new LauncherPID(
+                lancador, CPR_LANCADOR, MAX_RPM, TENSAO_REF,
+                hardwareMap.voltageSensor.iterator().next()
+        );
+
+        // ESTADO DO LANCADOR
+        boolean lancadorLigado = false;
+        boolean botaoYAnterior = false;
+        boolean botaoXAnterior = false;
+
+        // ESTADO DA RAJADA
+        Rajada rajada = Rajada.PARADO;
+        int pelotasRestantes = 0;
+        ElapsedTime timerRajada = new ElapsedTime();
+
+        telemetry.addLine("TeleOp pronto");
+        telemetry.update();
+
+        waitForStart();
+
+        if (isStopRequested()) {
+            return;
+
+        }
+
+        mecanum.resetHeading();
+
+        while (opModeIsActive()) {
+
+            // MOVIMENTACAO
+            mecanum.driverRobotOriented(
+                    -gamepad1.left_stick_y,
+                    gamepad1.left_stick_x,
+                    gamepad1.right_stick_x
+            );
+
+            // INTAKE
+            if (gamepad1.a) {
+                intake.coletarPolen();
+            } else if (gamepad1.b) {
+                intake.soltarPolen();
+            } else {
+                intake.parar();
+            }
+
+            // LANCADOR - TOGGLE COM BOTAO Y
+            if (gamepad1.y && !botaoYAnterior) {
+                lancadorLigado = !lancadorLigado;
+                if (!lancadorLigado) {
+                    // desligar o lancador cancela qualquer rajada
+                    rajada = Rajada.PARADO;
+                    pelotasRestantes = 0;
+                }
+            }
+            botaoYAnterior = gamepad1.y;
+
+
+            // RAJADA DE 4 PELOTAS - BOTAO X (aperte de novo para cancelar)
+            if (gamepad1.x && !botaoXAnterior) {
+                if (rajada == Rajada.PARADO) {
+                    lancadorLigado = true;               // garante o shooter ligado
+                    pelotasRestantes = PELOTAS_RAJADA;
+                    rajada = Rajada.AGUARDANDO_RPM;
+                    timerRajada.reset();
+                } else {
+                    rajada = Rajada.PARADO;
+                    pelotasRestantes = 0;
+                }
+            }
+            botaoXAnterior = gamepad1.x;
+
+            // CONTROLE DO LANCADOR
+            // D-pad CIMA = modo calibracao (potencia 1.0, sem PID) para medir o MAX_RPM
+            boolean calibrando = gamepad1.dpad_up;
+
+            if (calibrando) {
+                lancador.setPower(1.0);
+            } else {
+                pid.setTargetRPM(lancadorLigado ? RPM_ALVO : 0);
+                pid.update();
+            }
+
+            // MAQUINA DE ESTADOS DA RAJADA + INTAKE FINAL
+            switch (rajada) {
+                case AGUARDANDO_RPM:
+                    intakeFinal.parar();
+                    if (pid.isReady() || timerRajada.seconds() > TIMEOUT_PRONTO) {
+                        timerRajada.reset();
+
+                        rajada = Rajada.ALIMENTANDO;
+                    }
+                    break;
+
+                case ALIMENTANDO:
+                    intakeFinal.lancar();
+                    if (timerRajada.seconds() >= TEMPO_ALIMENTANDO) {
+                        intakeFinal.parar();
+                        pelotasRestantes--;
+                        timerRajada.reset();
+                        if (pelotasRestantes > 0) {
+                            rajada = Rajada.RECUPERANDO;
+                        } else {
+                            rajada = Rajada.PARADO;
+                        }
+                    }
+                    break;
+
+                case RECUPERANDO:
+                    intakeFinal.parar();
+                    // espera o RPM voltar ao alvo antes da proxima pelota
+                    if ((timerRajada.seconds() >= TEMPO_MIN_RECUPERACAO && pid.isReady())
+                            || timerRajada.seconds() > TIMEOUT_PRONTO) {
+                        timerRajada.reset();
+                        rajada = Rajada.ALIMENTANDO;
+                    }
+                    break;
+
+                default:
+                    break;
+            }
+
+
+            // INTAKE FINAL MANUAL (so quando a rajada nao esta ativa)
+            if (rajada == Rajada.PARADO) {
+                if (gamepad1.right_bumper) {
+                    intakeFinal.lancar();
+                } else if (gamepad1.left_bumper) {
+                    intakeFinal.reverse();
+                } else {
+                    intakeFinal.parar();
+                }
+            }
+
+            // RESET DA IMU
+            if (gamepad1.options) {
+                mecanum.resetHeading();
+            }
+
+            telemetry.addData("Orientacao", mecanum.getHeading());
+            telemetry.addData("Lancador ligado", lancadorLigado);
+            telemetry.addData("CALIBRANDO (D-pad cima)", calibrando);
+            telemetry.addData("RPM atual", "%.0f", pid.getRPM());
+            telemetry.addData("RPM alvo", "%.0f", lancadorLigado ? RPM_ALVO : 0.0);
+            telemetry.addData("Potencia", "%.2f", calibrando ? 1.0 : pid.getUltimaPotencia());
+            telemetry.addData("Bateria (V)", "%.2f", pid.getTensao());
+            telemetry.addData("Pronto", pid.isReady());
+            telemetry.addData("Rajada", rajada);
+            telemetry.addData("Pelotas restantes", pelotasRestantes);
+            telemetry.update();
+        }
+
+        // DESLIGAR MOTORES AO ENCERRAR
+        intake.parar();
+        intakeFinal.parar();
+
+        lancador.setPower(0);
+    }
+
+    // ======================= CONTROLADOR PID + FEEDFORWARD =======================
+    private static class LauncherPID {
+        private final DcMotorEx motor;
+        private final double cpr;
+        private final VoltageSensor bateria;
+        private final double tensaoRef;
+
+        // Ganhos (unidade: potencia por RPM de erro)
+        double kP = 0.025;
+        double kI = 0.0006;
+        double kD = 0.00001;
+        final double kF; // feedforward: potencia por tick/s
+
+        static final double LIMITE_I = 0.30;   // maximo de potencia vinda do integral
+
+        double toleranciaRPM = 100;     // faixa para considerar "pronto"
+        double tempoEstavelSeg = 0.05;  // tempo minimo dentro da faixa
+
+        private double alvoRPM = 0;
+        private double integral = 0;
+        private double erroAnterior = 0;
+        private double rpmFiltrado = 0;
+        private double ultimaPotencia = 0;
+        private double ultimaTensao = 12.0;
+        private boolean dentroDaFaixa = false;
+
+        private final ElapsedTime dtTimer = new ElapsedTime();
+        private final ElapsedTime prontoTimer = new ElapsedTime();
+
+
+        LauncherPID(DcMotorEx motor, double cpr, double rpmMedidoPotencia1,
+                    double tensaoRef, VoltageSensor bateria) {
+            this.motor = motor;
+            this.cpr = cpr;
+            this.bateria = bateria;
+            this.tensaoRef = tensaoRef;
+            this.kF = 1.0 / (rpmMedidoPotencia1 * cpr / 60.0);
+            this.ultimaTensao = bateria.getVoltage();
+            dtTimer.reset();
+            prontoTimer.reset();
+        }
+
+        void setTargetRPM(double rpm) {
+            if (rpm != alvoRPM) {
+                integral = 0;
+                dentroDaFaixa = false;
+            }
+            alvoRPM = rpm;
+        }
+
+        double getRPM() {
+            return Math.abs(motor.getVelocity()) * 60.0 / cpr;
+        }
+
+        double getUltimaPotencia() { return ultimaPotencia; }
+        double getTensao() { return ultimaTensao; }
+
+        void update() {
+            // dt limitado para nao distorcer integral/derivada apos pausas (ex: modo calibracao)
+            double dt = Math.min(Math.max(dtTimer.seconds(), 1e-3), 0.05);
+            dtTimer.reset();
+
+
+            rpmFiltrado = 0.4 * rpmFiltrado + 0.6 * getRPM(); // filtro leve = resposta mais rapida
+            ultimaTensao = bateria.getVoltage();
+
+            if (alvoRPM <= 0) {
+                motor.setPower(0);
+                ultimaPotencia = 0;
+                integral = 0;
+                dentroDaFaixa = false;
+                return;
+            }
+
+            double erro = alvoRPM - rpmFiltrado;
+
+            // integral limitado pela potencia maxima que ele pode gerar
+            integral += erro * dt;
+            double limiteIntegral = LIMITE_I / kI;
+            integral = Math.max(-limiteIntegral, Math.min(limiteIntegral, integral));
+
+            double derivada = (erro - erroAnterior) / dt;
+            erroAnterior = erro;
+
+            // compensacao de bateria: tensao menor => mais potencia no feedforward
+            double compensacao = tensaoRef / Math.max(ultimaTensao, 9.0);
+
+            double alvoTicksPorSeg = alvoRPM * cpr / 60.0;
+            double potencia = kF * alvoTicksPorSeg * compensacao
+                    + kP * erro
+                    + kI * integral
+                    + kD * derivada;
+
+            ultimaPotencia = Math.max(0, Math.min(1, potencia));
+            motor.setPower(ultimaPotencia);
+
+
+            boolean dentro = Math.abs(erro) <= toleranciaRPM;
+            if (dentro && !dentroDaFaixa) {
+                prontoTimer.reset();
+            }
+            dentroDaFaixa = dentro;
+        }
+
+        boolean isReady() {
+            return alvoRPM > 0 && dentroDaFaixa && prontoTimer.seconds() >= tempoEstavelSeg;
+        }
+    }
+}
