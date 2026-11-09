@@ -1,0 +1,25 @@
+package org.firstinspires.ftc.teamcode;
+
+import static org.firstinspires.ftc.robotcore.external.BlocksOpModeCompanion.hardwareMap;
+
+import com.qualcomm.robotcore.hardware.DcMotorEx;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
+import com.qualcomm.robotcore.hardware.HardwareMap;
+
+public class Lancador {
+
+    DcMotorEx lancador;
+    public Lancador(HardwareMap hardwareMap){
+        lancador = hardwareMap.get(DcMotorEx.class,"lancador");
+        lancador.setZeroPowerBehavior(DcMotorEx.ZeroPowerBehavior.BRAKE);
+        lancador.setDirection(DcMotorSimple.Direction.REVERSE);
+        lancador.setMode(DcMotorEx.RunMode.RUN_USING_ENCODER);
+    }
+    public void on(double vlc){
+        lancador.setVelocity(vlc);
+
+    }
+    public void off(){
+        lancador.setVelocity(0);
+    }
+}
