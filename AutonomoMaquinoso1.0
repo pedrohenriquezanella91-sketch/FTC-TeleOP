@@ -1,143 +1,108 @@
 package org.firstinspires.ftc.teamcode;
 
-import static com.pedropathing.api.Paths.*;
 import com.pedropathing.api.Paths;
-
 import com.pedropathing.api.PoseFactory;
 import com.pedropathing.follower.Follower;
 import com.pedropathing.math.Pose;
 import com.pedropathing.paths.Path;
 import com.pedropathing.ivy.Command;
 import com.pedropathing.ivy.Scheduler;
+
 import static com.pedropathing.ivy.Scheduler.schedule;
-import static com.pedropathing.ivy.commands.Commands.*;
+import static com.pedropathing.ivy.commands.Commands.instant;
+import static com.pedropathing.ivy.commands.Commands.waitMs;
 import static com.pedropathing.ivy.groups.Groups.sequential;
 import static com.pedropathing.ivy.pedro.PedroCommands.follow;
+
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 
 import org.firstinspires.ftc.teamcode.pedro.Constants;
 
-import java.util.AbstractSequentialList;
+@Autonomous(name = "AutonomoMaquinoso01", group = "Autonomous")
+public class AutonomoMaquinoso01 extends LinearOpMode {
 
-@Autonomous(name = "AutonomoMaquinoso", group = "Autonomous")
-public class AutonomoMaquinoso extends LinearOpMode {
+    private static final long TEMPO_ACELERAR_LANCADOR_MS = 2500;
+    private static final long TEMPO_FINAL_LANCANDO_MS = 3000;
 
     private Intake intake;
-
     private IntakeFinal intakeFinal;
-
     private Lancador lancador;
-
     private Follower follower;
 
     private final PoseFactory poseFactory = PoseFactory.degrees();
-    private final Pose maquinoso = poseFactory.of(56.427, 9.8656, 90);
-    private final Pose passo1 = poseFactory.of(54.5451, 26.1175, 220);
-    private final Pose passo1Control1 = poseFactory.of(66.573, 21.9789, 0);
-    private final Pose passo2Start = poseFactory.of(54.5451, 26.1175, 220);
-    private final Pose passo2 = poseFactory.of(9.9127, 10.186, 180);
-    private final Pose passo2Control1 = poseFactory.of(57.1777, 13.0299, 0);
-    private final Pose passo2Control2 = poseFactory.of(41.7455, 14.4471, 0);
-    private final Pose passo3Start = poseFactory.of(9.9127, 10.186, 180);
-    private final Pose passo3 = poseFactory.of(22.2688, 33.0906, 270);
-    private final Pose passo4Start = poseFactory.of(22.2688, 33.0906, 270);
-    private final Pose passo4 = poseFactory.of(61.1726, 134.4271, 270);
-    private final Pose passo4Control1 = poseFactory.of(35.0692, 63.403, 0);
-    private final Pose passo4Control2 = poseFactory.of(2.5957, 134.2354, 0);
-    private final Pose passo4Control3 = poseFactory.of(62.5578, 105.5915, 0);
-    private final Pose passo5Start = poseFactory.of(61.1726, 134.4271, 270);
-    private final Pose passo5 = poseFactory.of(61.3195, 106.4157, 0);
-    private final Pose passo6 = poseFactory.of(8.3885, 106.5684, -0.1653);
+    private final Pose startPose = poseFactory.of(56, 8, 90);
+    private final Pose endPose = poseFactory.of(9.0517, 98.4522, 0);
+    private final Pose controlPose = poseFactory.of(26.9651, 19.8808, 0);
 
-    // Autonomous routine
-    public Command autoRoutine() {
+    private Path trajetoria() {
+        return Paths.curve(startPose, controlPose, endPose).linear(startPose, endPose);
+    }
+
+    private Command autoRoutine() {
         return sequential(
-                //PRIMEIRA TENTATIVA LANCAMENTO
-                instant(()->lancador.on(1500)),
+                // PRIMEIRA TENTATIVA DE LANÇAMENTO
+                // lancador.on() usa o RPM_ALVO da classe Lancador;
+                // o PID roda em lancador.update() no loop principal
+                instant(() -> lancador.on()),
+                waitMs(TEMPO_ACELERAR_LANCADOR_MS),
+                instant(() -> intakeFinal.lancar()),
+                instant(() -> intake.coletarPolen()),
                 waitMs(5000),
-                instant(()-> intakeFinal.lancar()),
-                waitMs(500),
-                instant(()-> lancador.on(1500)),
-                waitMs(250),
-                instant(()-> intake.coletarPolen()),
-                waitMs(5000),
-                instant(()-> intakeFinal.parar()),
-                follow(follower, passo1()),
-                follow(follower, passo2()),
-                follow(follower, passo3()),
-                waitMs(3000),
-                follow(follower, passo4()),
-                //TENTATIVA DO SEGUNDO LANCAMENTO
-                instant(()->lancador.on(1710)),
-                waitMs(5000),
-                instant(()-> intakeFinal.lancar()),
-                waitMs(500),
-                instant(()-> lancador.on(1800)),
-                waitMs(250),
-                follow(follower, passo5()),
+                follow(follower, trajetoria()),
+                waitMs(TEMPO_FINAL_LANCANDO_MS),
 
-                //DESLIGA TODOS MOTORES
-                instant(()->intake.parar()),
-                instant(()->intakeFinal.parar()),
-                instant(()->lancador.off()),
-                follow(follower, passo6())
+                instant(this::desligarTudo)
         );
+    }
+
+    private void desligarTudo() {
+        if (intake != null) intake.parar();
+        if (intakeFinal != null) intakeFinal.parar();
+        if (lancador != null) lancador.stop();
     }
 
     @Override
     public void runOpMode() {
+        Scheduler.reset();
 
         intake = new Intake(hardwareMap);
         intakeFinal = new IntakeFinal(hardwareMap);
         lancador = new Lancador(hardwareMap);
 
-        Scheduler.reset();
         follower = Constants.create(hardwareMap);
-        follower.setPose(maquinoso);
+        follower.setPose(startPose);
         follower.update();
 
         waitForStart();
+        if (isStopRequested()) return;
+
         schedule(autoRoutine());
 
-        while (opModeIsActive()) {
-            follower.update();
-            Scheduler.execute();
+        try {
+            while (opModeIsActive()) {
+                follower.update();
+                Scheduler.execute();
 
-            telemetry.addData("x", follower.pose().x());
-            telemetry.addData("y", follower.pose().y());
-            telemetry.addData("heading", follower.pose().heading());
+                lancador.update(); // PID do lançador (obrigatório a cada volta)
 
-            if (follower.currentPath() != null) {
-                telemetry.addData("Current path distance remaining", follower.distanceToEndpoint());
-                telemetry.addData("Path number", follower.pathIndex());
+                telemetry.addData("x", follower.pose().x());
+                telemetry.addData("y", follower.pose().y());
+                telemetry.addData("heading", follower.pose().heading());
+
+                telemetry.addData("RPM atual", "%.0f", lancador.getRPM());
+                telemetry.addData("RPM alvo", "%.0f", lancador.getAlvoRPM());
+                telemetry.addData("Lançador pronto", lancador.isReady());
+
+                if (follower.currentPath() != null) {
+                    telemetry.addData("Distância restante", follower.distanceToEndpoint());
+                    telemetry.addData("Path número", follower.pathIndex());
+                }
+
+                telemetry.update();
             }
-
-            telemetry.update();
+        } finally {
+            desligarTudo();
         }
-    }
-
-    public Path passo1() {
-        return Paths.curve(maquinoso, passo1Control1, passo1).linear(maquinoso, passo1);
-    }
-
-    public Path passo2() {
-        return Paths.curve(passo2Start, passo2Control1, passo2Control2, passo2).linear(passo2Start, passo2);
-    }
-
-    public Path passo3() {
-        return Paths.line(passo3Start, passo3).linear(passo3Start, passo3);
-    }
-
-    public Path passo4() {
-        return Paths.curve(passo4Start, passo4Control1, passo4Control2, passo4Control3, passo4).linear(passo4Start, passo4);
-    }
-
-    public Path passo5() {
-        return Paths.line(passo5Start, passo5).linear(passo5Start, passo5);
-    }
-
-    public Path passo6() {
-        return Paths.line(passo5, passo6).reverseTangent();
     }
 }
