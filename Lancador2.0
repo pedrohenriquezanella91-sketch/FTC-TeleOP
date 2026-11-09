@@ -1,0 +1,150 @@
+package org.firstinspires.ftc.teamcode;
+
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DcMotorEx;
+import com.qualcomm.robotcore.hardware.HardwareMap;
+import com.qualcomm.robotcore.hardware.VoltageSensor;
+import com.qualcomm.robotcore.util.ElapsedTime;
+
+public class Lancador {
+
+    // ================== CONFIGURACAO DO LANCADOR ==================
+    static final double CPR_LANCADOR = 28;   // ticks por volta NO EIXO DO SHOOTER
+    static final double MAX_RPM = 5100;      // RPM estavel com potencia 1.0
+    static final double TENSAO_REF = 12.5;   // tensao da bateria durante a medicao do MAX_RPM
+    static final double RPM_ALVO = 2400;     // RPM desejado para o disparo
+    // ==============================================================
+
+    private final DcMotorEx motor;
+    private final VoltageSensor bateria;
+
+    // Ganhos (unidade: potencia por RPM de erro)
+    double kP = 0.025;
+    double kI = 0.0006;
+    double kD = 0.00001;
+    final double kF; // feedforward: potencia por tick/s
+
+    static final double LIMITE_I = 0.30;   // maximo de potencia vinda do integral
+
+    double toleranciaRPM = 100;     // faixa para considerar "pronto"
+    double tempoEstavelSeg = 0.05;  // tempo minimo dentro da faixa
+
+    private double alvoRPM = 0;
+    private double integral = 0;
+    private double erroAnterior = 0;
+    private double rpmFiltrado = 0;
+    private double ultimaPotencia = 0;
+    private double ultimaTensao = 12.0;
+    private boolean dentroDaFaixa = false;
+
+    private final ElapsedTime dtTimer = new ElapsedTime();
+    private final ElapsedTime prontoTimer = new ElapsedTime();
+
+    public Lancador(HardwareMap hardwareMap) {
+        motor = hardwareMap.get(DcMotorEx.class, "lancador");
+        motor.setDirection(DcMotor.Direction.REVERSE);
+        motor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        motor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        motor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER); // o PID e feito por nos
+
+        bateria = hardwareMap.voltageSensor.iterator().next();
+
+        this.kF = 1.0 / (MAX_RPM * CPR_LANCADOR / 60.0);
+        this.ultimaTensao = bateria.getVoltage();
+        dtTimer.reset();
+        prontoTimer.reset();
+    }
+
+    // ---------------- API de uso ----------------
+
+    /** Liga o lancador no RPM_ALVO. Chame update() a cada loop. */
+    public void on() {
+        setTargetRPM(RPM_ALVO);
+    }
+
+    /** Liga o lancador em um RPM especifico. Chame update() a cada loop. */
+    public void on(double rpm) {
+        setTargetRPM(rpm);
+    }
+
+    public void off() {
+        setTargetRPM(0);
+    }
+
+    /** Modo calibracao: potencia 1.0 sem PID, para medir o MAX_RPM. */
+    public void calibrar() {
+        motor.setPower(1.0);
+    }
+
+    // ---------------- PID + Feedforward ----------------
+
+    public void setTargetRPM(double rpm) {
+        if (rpm != alvoRPM) {
+            integral = 0;
+            dentroDaFaixa = false;
+        }
+        alvoRPM = rpm;
+    }
+
+    public double getRPM() {
+        return Math.abs(motor.getVelocity()) * 60.0 / CPR_LANCADOR;
+    }
+
+    public double getUltimaPotencia() { return ultimaPotencia; }
+    public double getTensao() { return ultimaTensao; }
+    public double getAlvoRPM() { return alvoRPM; }
+
+    public void update() {
+        // dt limitado para nao distorcer integral/derivada apos pausas (ex: modo calibracao)
+        double dt = Math.min(Math.max(dtTimer.seconds(), 1e-3), 0.05);
+        dtTimer.reset();
+
+        rpmFiltrado = 0.4 * rpmFiltrado + 0.6 * getRPM(); // filtro leve = resposta mais rapida
+        ultimaTensao = bateria.getVoltage();
+
+        if (alvoRPM <= 0) {
+            motor.setPower(0);
+            ultimaPotencia = 0;
+            integral = 0;
+            dentroDaFaixa = false;
+            return;
+        }
+
+        double erro = alvoRPM - rpmFiltrado;
+
+        // integral limitado pela potencia maxima que ele pode gerar
+        integral += erro * dt;
+        double limiteIntegral = LIMITE_I / kI;
+        integral = Math.max(-limiteIntegral, Math.min(limiteIntegral, integral));
+
+        double derivada = (erro - erroAnterior) / dt;
+        erroAnterior = erro;
+
+        // compensacao de bateria: tensao menor => mais potencia no feedforward
+        double compensacao = TENSAO_REF / Math.max(ultimaTensao, 9.0);
+
+        double alvoTicksPorSeg = alvoRPM * CPR_LANCADOR / 60.0;
+        double potencia = kF * alvoTicksPorSeg * compensacao
+                + kP * erro
+                + kI * integral
+                + kD * derivada;
+
+        ultimaPotencia = Math.max(0, Math.min(1, potencia));
+        motor.setPower(ultimaPotencia);
+
+        boolean dentro = Math.abs(erro) <= toleranciaRPM;
+        if (dentro && !dentroDaFaixa) {
+            prontoTimer.reset();
+        }
+        dentroDaFaixa = dentro;
+    }
+
+    public boolean isReady() {
+        return alvoRPM > 0 && dentroDaFaixa && prontoTimer.seconds() >= tempoEstavelSeg;
+    }
+
+    public void stop() {
+        setTargetRPM(0);
+        motor.setPower(0);
+    }
+}
