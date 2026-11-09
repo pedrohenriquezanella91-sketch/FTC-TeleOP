@@ -1,0 +1,105 @@
+package org.firstinspires.ftc.teamcode;
+
+import static com.pedropathing.api.Paths.*;
+import com.pedropathing.api.Paths;
+
+import com.pedropathing.api.PoseFactory;
+import com.pedropathing.follower.Follower;
+import com.pedropathing.math.Pose;
+import com.pedropathing.paths.Path;
+import com.pedropathing.ivy.Command;
+import com.pedropathing.ivy.Scheduler;
+import static com.pedropathing.ivy.Scheduler.schedule;
+import static com.pedropathing.ivy.commands.Commands.*;
+import static com.pedropathing.ivy.groups.Groups.sequential;
+import static com.pedropathing.ivy.pedro.PedroCommands.follow;
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+
+import org.firstinspires.ftc.teamcode.pedro.Constants;
+
+@Autonomous(name = "AutoPath", group = "Autonomous")
+public class AutonomoMaquinoso02 extends LinearOpMode {
+
+    private Follower follower;
+    private Intake intake;
+    private IntakeFinal intakeFinal;
+    private Lancador lancador;
+
+    private final PoseFactory poseFactory = PoseFactory.degrees();
+
+    private final Pose start = poseFactory.of(59.4938, 132.0309, 270);
+    private final Pose path1 = poseFactory.of(10.3619, 116.7948, 0);
+    private final Pose path1Control1 = poseFactory.of(79.1974, 99.5454, 0);
+
+    // Autonomous routine
+    public Command autoRoutine() {
+        return sequential(
+                waitMs(10000),
+                // PRIMEIRA TENTATIVA DE LANÇAMENTO
+                // lancador.on() usa o RPM_ALVO da classe Lancador;
+                // o PID roda em lancador.update() no loop principal
+                instant(() -> lancador.on()),
+                waitMs(2500),
+                instant(() -> intakeFinal.lancar()),
+                instant(() -> intake.coletarPolen()),
+                waitMs(3000),
+                follow(follower, path1()),
+                instant(() -> desligarTudo())
+
+        );
+    }
+    private void desligarTudo() {
+        if (intake != null) intake.parar();
+        if (intakeFinal != null) intakeFinal.parar();
+        if (lancador != null) lancador.stop();
+    }
+
+    @Override
+    public void runOpMode() {
+        Scheduler.reset();
+
+        // Subsistemas criados UMA vez, antes do start (nao dentro do loop)
+        intake = new Intake(hardwareMap);
+        intakeFinal = new IntakeFinal(hardwareMap);
+        lancador = new Lancador(hardwareMap);
+
+        follower = Constants.create(hardwareMap);
+        follower.setPose(start);
+        follower.update();
+
+        waitForStart();
+        if (isStopRequested()) return;
+
+        schedule(autoRoutine());
+        try {
+            while (opModeIsActive()) {
+                follower.update();
+                Scheduler.execute();
+
+                lancador.update(); // PID do lançador (obrigatório a cada volta)
+
+                telemetry.addData("x", follower.pose().x());
+                telemetry.addData("y", follower.pose().y());
+                telemetry.addData("heading", follower.pose().heading());
+
+                telemetry.addData("RPM atual", "%.0f", lancador.getRPM());
+                telemetry.addData("RPM alvo", "%.0f", lancador.getAlvoRPM());
+                telemetry.addData("Lançador pronto", lancador.isReady());
+
+                if (follower.currentPath() != null) {
+                    telemetry.addData("Current path distance remaining", follower.distanceToEndpoint());
+                    telemetry.addData("Path number", follower.pathIndex());
+                }
+
+                telemetry.update();
+            }
+        } finally {
+            desligarTudo();
+        }
+    }
+
+    public Path path1() {
+        return Paths.curve(start, path1Control1, path1).linear(start, path1);
+    }
+}
