@@ -1,0 +1,38 @@
+package org.firstinspires.ftc.teamcode;
+
+import com.qualcomm.robotcore.hardware.HardwareMap;
+import com.qualcomm.robotcore.hardware.Servo;
+
+public class PecaFrontal {
+
+    // AJUSTE NO TESTE (comece com valores proximos)
+    static final double ESQ_ABAIXADA = 0.0, ESQ_LEVANTADA = 0.45;
+    static final double DIR_ABAIXADA = 0.0, DIR_LEVANTADA = 0.45;
+
+    private final Servo servoEsq;
+    private final Servo servoDir;
+    private boolean levantada = false;
+
+    public PecaFrontal(HardwareMap hardwareMap) {
+        servoEsq = hardwareMap.get(Servo.class, "servoEsq");
+        servoDir = hardwareMap.get(Servo.class, "servoDir");
+
+        // lados espelhados: se um girar ao contrario, inverta o outro
+        servoDir.setDirection(Servo.Direction.REVERSE);
+    }
+
+    public void levantar() {
+        servoEsq.setPosition(ESQ_LEVANTADA);
+        servoDir.setPosition(DIR_LEVANTADA);
+        levantada = true;
+    }
+
+    public void abaixar() {
+        servoEsq.setPosition(ESQ_ABAIXADA);
+        servoDir.setPosition(DIR_ABAIXADA);
+
+        levantada = false;
+    }
+
+    public boolean isLevantada() { return levantada; }
+}
