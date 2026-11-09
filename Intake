@@ -13,10 +13,11 @@ public class Intake {
     public Intake(HardwareMap hardwareMap) {
         intake = hardwareMap.get(DcMotor.class, "intake");
 
-        intake.setDirection(DcMotorSimple.Direction.FORWARD);
+        intake.setDirection(DcMotorSimple.Direction.REVERSE);
     }
 
     public void coletarPolen() {
+
         intake.setPower(1.0);
     }
     public void soltarPolen(){
