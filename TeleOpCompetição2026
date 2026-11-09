@@ -1,0 +1,421 @@
+package org.firstinspires.ftc.teamcode;
+
+import com.pedropathing.api.PoseFactory;
+import com.pedropathing.follower.Follower;
+import com.pedropathing.math.Pose;
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DcMotorEx;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
+
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+import org.firstinspires.ftc.teamcode.pedro.Constants;
+
+@TeleOp(name = "NaoUtililizar", group = "Competition")
+public class TeleOpOrientadoRoboCompleto extends LinearOpMode {
+
+    // ========================================================================
+    // TIPOS
+    // ========================================================================
+    public enum Alianca { VERMELHA, AZUL }
+    public enum Celula { CELULA_1, CELULA_2 }
+
+    // ========================================================================
+    // HARDWARE
+    // ========================================================================
+    private DcMotorEx motorTorreta;
+
+    // ========================================================================
+    // CALIBRAÇÃO MECÂNICA (mantida do código original)
+    // ========================================================================
+    static final double TICKS_POR_REVOLUCAO_MOTOR = 537.7;
+    static final double RELACAO_DE_REDUCAO_TORRETA = 2.157;
+
+    // Ticks necessários para girar 1 radiano na torreta
+    static final double TICKS_POR_RADIANO = (TICKS_POR_REVOLUCAO_MOTOR * RELACAO_DE_REDUCAO_TORRETA) / (2 * Math.PI);
+
+    // Se a torreta girar no sentido errado, mude para true
+    static final boolean INVERTER_SENTIDO_TORRETA = false;
+
+    // Ângulo REAL da torreta (rad, relativo à frente do robô, anti-horário positivo)
+    // quando o encoder está em 0. Se a torreta é zerada apontando para a frente, deixe 0.
+    static final double OFFSET_ZERO_ENCODER_RAD = Math.toRadians(0);
+
+    // ========================================================================
+    // LIMITES DE SEGURANÇA DA TORRETA (ângulo real, em radianos)
+    // ========================================================================
+    static final double LIMITE_MAX_RAD = Math.toRadians(90);
+    static final double LIMITE_MIN_RAD = Math.toRadians(-90);
+    static final double MARGEM_LIMITE_RAD = Math.toRadians(5); // corte de potência além do limite
+
+    // ========================================================================
+    // CONTROLE DO MOTOR
+    // ========================================================================
+    static final double KP = 0.008;
+    static final double POTENCIA_MAX = 0.6;
+    static final int ZONA_MORTA = 4; // ticks
+
+    // ========================================================================
+    // POSIÇÃO INICIAL DO ROBÔ (Pedro: polegadas / graus) - ajuste conforme a partida
+    // ========================================================================
+    static final double POSE_INICIAL_X = 57.1;
+    static final double POSE_INICIAL_Y = 9.5;
+    static final double POSE_INICIAL_HEADING_GRAUS = 90;
+
+    // ========================================================================
+    // SELEÇÃO DE ALIANÇA E CÉLULA (valores iniciais)
+    // Em tempo de execução: gamepad1.b alterna a aliança, gamepad1.a alterna a célula.
+    // ========================================================================
+    static Alianca ALIANCA_SELECIONADA = Alianca.VERMELHA;
+    static Celula CELULA_SELECIONADA = Celula.CELULA_1;
+
+    // ========================================================================
+    // COORDENADAS DOS ALVOS (polegadas, sistema do Pedro Pathing)
+    // *** PROVISÓRIAS - NÃO SÃO COORDENADAS REAIS DO CAMPO ***
+    // Devem apontar o centro da abertura da célula virada para cima.
+    // ========================================================================
+    static final double HIVE_VERMELHO_CELULA_1_X = 57; // PROVISÓRIO
+    static final double HIVE_VERMELHO_CELULA_1_Y = 57; // PROVISÓRIO
+    static final double HIVE_VERMELHO_CELULA_2_X = 57; // PROVISÓRIO
+    static final double HIVE_VERMELHO_CELULA_2_Y = 80; // PROVISÓRIO
+
+    static final double HIVE_AZUL_CELULA_1_X = 80;      // PROVISÓRIO
+    static final double HIVE_AZUL_CELULA_1_Y = 57;     // PROVISÓRIO
+    static final double HIVE_AZUL_CELULA_2_X = 80;      // PROVISÓRIO
+    static final double HIVE_AZUL_CELULA_2_Y = 80;     // PROVISÓRIO
+
+    // Quando as coordenadas reais forem medidas, mude para true (remove o aviso da telemetria)
+    static final boolean ALVOS_CALIBRADOS = true;
+
+    // ========================================================================
+    // CORREÇÃO FINA (reservado para a futura integração com a Limelight)
+    // Por enquanto fica em 0: a mira inicial depende só da odometria.
+    // ========================================================================
+    private double correcaoFinaRad = 0.0;
+
+    // Controle de borda dos botões
+    private boolean aAnterior = false;
+    private boolean bAnterior = false;
+
+
+
+    @Override
+    public void runOpMode() throws InterruptedException {
+
+        // ================================================================
+        // SUBSISTEMAS DO TELEOP
+        // ================================================================
+
+        PecaFrontal pf = new PecaFrontal(hardwareMap);
+
+
+
+        Mecanum mecanum = new Mecanum(hardwareMap);
+        Intake intake = new Intake(hardwareMap);
+        IntakeFinal intakeFinal = new IntakeFinal(hardwareMap);
+        telemetry.setMsTransmissionInterval(11);
+
+        // Lançador com PID + feedforward (ver classe Lancador)
+        Lancador lancador = new Lancador(hardwareMap);
+
+        boolean lancadorLigado = false;
+        boolean botaoYAnterior = false;
+
+        // ================================================================
+        // ODOMETRIA / PEDRO PATHING
+        // ================================================================
+        final PoseFactory poseFactory = PoseFactory.degrees();
+        final Pose poseInicial = poseFactory.of(
+                POSE_INICIAL_X,
+                POSE_INICIAL_Y,
+                POSE_INICIAL_HEADING_GRAUS
+        );
+
+        Follower follower = Constants.create(hardwareMap);
+        follower.setPose(poseInicial);
+        follower.update();
+
+        // ================================================================
+        // TORRETA
+        // ================================================================
+        motorTorreta = hardwareMap.get(DcMotorEx.class, "torretaHorizontal");
+
+        if (INVERTER_SENTIDO_TORRETA) {
+            motorTorreta.setDirection(DcMotorSimple.Direction.REVERSE);
+        }
+
+        motorTorreta.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        motorTorreta.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        motorTorreta.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+
+        // Seleção de aliança/célula no INIT.
+        // D-pad ESQUERDO alterna aliança; D-pad DIREITO alterna célula.
+        while (!isStarted() && !isStopRequested()) {
+            atualizarSelecao();
+
+            telemetry.addLine("TeleOpOrientadoCompleto - pronto");
+            telemetry.addData("Aliança (D-pad esquerdo)", ALIANCA_SELECIONADA);
+            telemetry.addData("Célula (D-pad direito)", CELULA_SELECIONADA);
+            telemetry.addData(
+                    "Pose inicial",
+                    "X=%.1f Y=%.1f H=%.1f°",
+                    POSE_INICIAL_X,
+                    POSE_INICIAL_Y,
+                    POSE_INICIAL_HEADING_GRAUS
+            );
+            telemetry.addLine("A/B: intake | Y: liga/desliga lançador");
+            telemetry.addLine("RB/LB: intake final | Options: reset IMU");
+
+            if (!ALVOS_CALIBRADOS) {
+                telemetry.addLine("AVISO: coordenadas dos alvos ainda são provisórias");
+            }
+
+            telemetry.update();
+        }
+
+        waitForStart();
+
+        if (isStopRequested()) {
+            return;
+        }
+
+        mecanum.resetHeading();
+
+        while (opModeIsActive() && !isStopRequested()) {
+
+            if(gamepad1.dpad_down) {
+                pf.abaixar();
+            } else {
+                pf.levantar();
+            }
+
+
+            // ============================================================
+            // MOVIMENTAÇÃO ROBOT-ORIENTED
+            // ============================================================
+            mecanum.driverRobotOriented(
+                    -gamepad1.left_stick_y,
+                    gamepad1.left_stick_x,
+                    gamepad1.right_stick_x
+            );
+
+            // ============================================================
+            // INTAKE PRINCIPAL
+            // ============================================================
+            if (gamepad1.a) {
+                intake.coletarPolen();
+            } else if (gamepad1.b) {
+                intake.soltarPolen();
+            } else {
+                intake.parar();
+            }
+
+            // ============================================================
+            // LANÇADOR - TOGGLE NO BOTÃO Y (PID + FEEDFORWARD)
+            // ============================================================
+            if (gamepad1.y && !botaoYAnterior) {
+                lancadorLigado = !lancadorLigado;
+            }
+
+            botaoYAnterior = gamepad1.y;
+
+            if (lancadorLigado) {
+                lancador.on();   // alvo = RPM_ALVO (2400 RPM)
+            } else {
+                lancador.off();
+            }
+            lancador.update();   // OBRIGATORIO a cada volta do loop
+
+
+            // ============================================================
+            // INTAKE FINAL
+            // ============================================================
+            if (gamepad1.right_bumper) {
+                intakeFinal.lancar();
+            } else if (gamepad1.left_bumper) {
+                intakeFinal.reverse();
+            } else {
+                intakeFinal.parar();
+            }
+
+            // ============================================================
+            // RESET DA IMU
+            // ============================================================
+            if (gamepad1.options) {
+                mecanum.resetHeading();
+            }
+
+            // ============================================================
+            // ATUALIZAÇÃO DA ODOMETRIA
+            // ============================================================
+            follower.update();
+            atualizarSelecao();
+
+            double xRobo = follower.pose().x();
+            double yRobo = follower.pose().y();
+            double headingRobo = follower.pose().heading();
+
+            // ============================================================
+            // CÁLCULO DO ALVO E DA MIRA DA TORRETA
+            // ============================================================
+            double[] alvo = obterAlvoSelecionado();
+            double xAlvo = alvo[0];
+            double yAlvo = alvo[1];
+
+            double deltaX = xAlvo - xRobo;
+            double deltaY = yAlvo - yRobo;
+            double anguloAbsolutoAoAlvo = Math.atan2(deltaY, deltaX);
+
+            double anguloTorretaDesejado =
+                    anguloAbsolutoAoAlvo - headingRobo + correcaoFinaRad;
+
+            anguloTorretaDesejado =
+                    AngleUnit.normalizeRadians(anguloTorretaDesejado);
+
+            // ============================================================
+            // LIMITES MECÂNICOS DA TORRETA
+            // ============================================================
+            int ticksAtualMotor = motorTorreta.getCurrentPosition();
+
+            double anguloAtualTorreta =
+                    (ticksAtualMotor / TICKS_POR_RADIANO) + OFFSET_ZERO_ENCODER_RAD;
+
+            if (anguloTorretaDesejado > LIMITE_MAX_RAD
+                    || anguloTorretaDesejado < LIMITE_MIN_RAD) {
+                anguloTorretaDesejado =
+                        (anguloAtualTorreta >= 0) ? LIMITE_MAX_RAD : LIMITE_MIN_RAD;
+            }
+
+            int ticksAlvoMotor = (int) Math.round(
+                    (anguloTorretaDesejado - OFFSET_ZERO_ENCODER_RAD)
+                            * TICKS_POR_RADIANO
+            );
+
+            // ============================================================
+            // CONTROLE PROPORCIONAL DA TORRETA
+            // ============================================================
+            int erro = ticksAlvoMotor - ticksAtualMotor;
+
+            double potenciaTorreta = 0;
+
+            if (Math.abs(erro) > ZONA_MORTA) {
+                potenciaTorreta = KP * erro;
+                potenciaTorreta = Math.max(
+                        -POTENCIA_MAX,
+                        Math.min(POTENCIA_MAX, potenciaTorreta)
+                );
+            }
+
+            if (anguloAtualTorreta > LIMITE_MAX_RAD + MARGEM_LIMITE_RAD
+                    && potenciaTorreta > 0) {
+                potenciaTorreta = 0;
+            }
+
+            if (anguloAtualTorreta < LIMITE_MIN_RAD - MARGEM_LIMITE_RAD
+                    && potenciaTorreta < 0) {
+                potenciaTorreta = 0;
+            }
+
+            motorTorreta.setPower(potenciaTorreta);
+
+            // ============================================================
+            // TELEMETRIA GERAL
+            // ============================================================
+            telemetry.addData("Orientacao IMU", mecanum.getHeading());
+            telemetry.addData("Lancador ligado", lancadorLigado);
+            telemetry.addData("RPM atual", "%.0f", lancador.getRPM());
+            telemetry.addData("RPM alvo", "%.0f", lancador.getAlvoRPM());
+            telemetry.addData("Potência lançador", "%.2f", lancador.getUltimaPotencia());
+            telemetry.addData("Bateria (V)", "%.2f", lancador.getTensao());
+            telemetry.addData("Lançador pronto", lancador.isReady());
+
+            telemetry.addData("Aliança (D-pad esquerdo)", ALIANCA_SELECIONADA);
+            telemetry.addData("Célula (D-pad direito)", CELULA_SELECIONADA);
+
+            if (!ALVOS_CALIBRADOS) {
+                telemetry.addLine("AVISO: coordenadas dos alvos ainda são provisórias");
+            }
+
+            telemetry.addData("Robô X / Y (pol)", "%.1f, %.1f", xRobo, yRobo);
+            telemetry.addData(
+                    "Heading odometria (°)",
+                    "%.1f",
+                    Math.toDegrees(headingRobo)
+            );
+            telemetry.addData("Alvo X / Y (pol)", "%.1f, %.1f", xAlvo, yAlvo);
+            telemetry.addData(
+                    "Ângulo absoluto ao alvo (°)",
+                    "%.1f",
+                    Math.toDegrees(anguloAbsolutoAoAlvo)
+            );
+            telemetry.addData(
+                    "Ângulo desejado torreta (°)",
+                    "%.1f",
+                    Math.toDegrees(anguloTorretaDesejado)
+            );
+            telemetry.addData(
+                    "Ângulo atual torreta (°)",
+                    "%.1f",
+                    Math.toDegrees(anguloAtualTorreta)
+            );
+            telemetry.addData("Ticks desejados", ticksAlvoMotor);
+            telemetry.addData("Ticks atuais", ticksAtualMotor);
+            telemetry.addData("Erro torreta (ticks)", erro);
+            telemetry.addData("Potência torreta", "%.2f", potenciaTorreta);
+            telemetry.update();
+        }
+
+        // ================================================================
+        // DESLIGAR OS MECANISMOS AO ENCERRAR
+        // ================================================================
+        intake.parar();
+        intakeFinal.parar();
+        lancador.stop();
+        motorTorreta.setPower(0);
+    }
+
+    // ========================================================================
+    // MÉTODOS AUXILIARES
+    // ========================================================================
+
+    /** Retorna {x, y} do alvo conforme a aliança e a célula selecionadas. */
+    private double[] obterAlvoSelecionado() {
+        if (ALIANCA_SELECIONADA == Alianca.VERMELHA) {
+            if (CELULA_SELECIONADA == Celula.CELULA_1) {
+                return new double[]{HIVE_VERMELHO_CELULA_1_X, HIVE_VERMELHO_CELULA_1_Y};
+            } else {
+                return new double[]{HIVE_VERMELHO_CELULA_2_X, HIVE_VERMELHO_CELULA_2_Y};
+            }
+        } else {
+            if (CELULA_SELECIONADA == Celula.CELULA_1) {
+                return new double[]{HIVE_AZUL_CELULA_1_X, HIVE_AZUL_CELULA_1_Y};
+            } else {
+                return new double[]{HIVE_AZUL_CELULA_2_X, HIVE_AZUL_CELULA_2_Y};
+            }
+        }
+    }
+
+    /** Alterna aliança (B) e célula (A) com detecção de borda. Ponto de entrada para automação futura. */
+    private void atualizarSelecao() {
+        boolean direita = gamepad1.dpad_right;
+        boolean esquerda = gamepad1.dpad_left;
+
+        if (direita && !aAnterior) {
+            CELULA_SELECIONADA =
+                    (CELULA_SELECIONADA == Celula.CELULA_1)
+                            ? Celula.CELULA_2
+                            : Celula.CELULA_1;
+        }
+
+        if (esquerda && !bAnterior) {
+            ALIANCA_SELECIONADA =
+                    (ALIANCA_SELECIONADA == Alianca.VERMELHA)
+                            ? Alianca.AZUL
+                            : Alianca.VERMELHA;
+        }
+
+        aAnterior = direita;
+        bAnterior = esquerda;
+    }
+}
